@@ -1,0 +1,44 @@
+{
+	"schemaVersion": 1,
+	"id": "svco",
+	"version": "${version}",
+	"name": "Simple Voice Online",
+	"description": "Client addon for Simple Voice Chat: when the server has no voice chat installed, routes voice through a standalone relay server so addon users can still talk.",
+	"authors": [
+		"mryd"
+	],
+	"contact": {},
+	"license": "All rights reserved",
+	"icon": "assets/svco/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"org.mryd.svco.Svco"
+		],
+		"client": [
+			"org.mryd.svco.client.SvcoClient"
+		],
+		"voicechat": [
+			"org.mryd.svco.client.SVCPlugin"
+		],
+		"modmenu": [
+			"org.mryd.svco.client.gui.ModMenuIntegration"
+		]
+	},
+	"mixins": [
+		{
+			"config": "svco.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"suggests": {
+		"modmenu": "*"
+	},
+	"depends": {
+		"fabricloader": ">=${loader_version}",
+		"minecraft": "${minecraft_range}",
+		"java": ">=${java_version}",
+		"fabric-api": "*",
+		"voicechat": "${voicechat_dep}"
+	}
+}

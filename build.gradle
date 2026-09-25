@@ -1,0 +1,175 @@
+plugins {
+	// 'net.fabricmc.fabric-loom' targets the unobfuscated (26.x+) pipeline,
+	// classic 'fabric-loom' the obfuscated (<=1.21.x, Mojmap) one.
+	id 'net.fabricmc.fabric-loom' version "${loom_version}" apply false
+	id 'fabric-loom' version "${loom_version}" apply false
+	id 'maven-publish'
+	id 'com.modrinth.minotaur' version '2.10.0'
+}
+
+def legacyMc = project.minecraft_version.startsWith("1.")
+apply plugin: legacyMc ? 'fabric-loom' : 'net.fabricmc.fabric-loom'
+
+version = "${project.mod_version}+${project.minecraft_version}"
+group = project.maven_group
+
+base {
+	// Without this the jar would be named after the subproject ("1.20.1-...")
+	archivesName = "svco"
+}
+
+// Java target per Minecraft version (17 for 1.20.1/1.20.4, 21 for 1.20.6-1.21.x, 25 for 26.x)
+def javaRelease = project.java_release as int
+
+repositories {
+	// Add repositories to retrieve artifacts from in here.
+	// You should only use this when depending on other mods because
+	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
+	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
+	// for more information about repositories.
+	maven { url = 'https://maven.maxhenkel.de/repository/public' }
+	maven {
+		name = "Modrinth"
+		url = "https://api.modrinth.com/maven"
+		content {
+			includeGroup "maven.modrinth"
+		}
+	}
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"svco" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+// Constant for guarding code that differs between SVC 2.5.x (1.20.4/1.20.6) and 2.6.x
+stonecutter {
+	constants.put("svc26", !project.svc_artifact.contains("-2.5."))
+}
+
+dependencies {
+	// To change the versions see the per-version gradle.properties in versions/<mc>/
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	// 26.x+ ships unobfuscated; older versions need Mojang mappings, and their mod
+	// jars are intermediary-mapped, so they must go through mod* configurations
+	// to be remapped onto the Mojmap dev classpath.
+	if (legacyMc) {
+		mappings loom.officialMojangMappings()
+		modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+		modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+		// Settings screen entry in ModMenu; only the API is needed at compile time
+		modCompileOnly "maven.modrinth:modmenu:${project.modmenu_version}"
+		// Full SVC mod jar: the fallback addon touches internal classes (ClientManager, SecretPacket)
+		modImplementation "maven.modrinth:simple-voice-chat:${project.svc_artifact}"
+	} else {
+		implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+		implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+		compileOnly "maven.modrinth:modmenu:${project.modmenu_version}"
+		implementation "maven.modrinth:simple-voice-chat:${project.svc_artifact}"
+	}
+
+	implementation "de.maxhenkel.voicechat:voicechat-api:${project.voicechat_api_version}"
+}
+
+// Covers both processResources (main, fabric.mod.json) and
+// processClientResources (client, svco.client.mixins.json)
+tasks.withType(ProcessResources).configureEach {
+	def props = [
+			version         : project.version,
+			minecraft_range : project.minecraft_range,
+			java_version    : javaRelease,
+			loader_version  : project.loader_version,
+			voicechat_dep   : project.voicechat_dep,
+			mixin_java_level: project.mixin_java_level
+	]
+	inputs.properties props
+
+	filesMatching(["fabric.mod.json", "svco.client.mixins.json"]) {
+		expand props
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = javaRelease
+}
+
+java {
+	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
+	// if it is present.
+	// If you remove this line, sources will not be generated.
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.toVersion(javaRelease)
+	targetCompatibility = JavaVersion.toVersion(javaRelease)
+}
+
+jar {
+	def projectName = project.name
+	inputs.property "projectName", projectName
+
+	from("LICENSE") {
+		rename { "${it}_$projectName"}
+	}
+}
+
+// Modrinth publishing. This build script is shared by every Stonecutter version
+// subproject, so each one uploads its own jar as a separate Modrinth version:
+//   ./gradlew :1.21.8:modrinth      one version
+//   ./gradlew modrinth              all of them
+// MODRINTH_TOKEN must be in the environment; the release workflow supplies it.
+def modrinthGameVersions = project.modrinth_game_versions
+		.split(',')
+		.collect { it.trim() }
+		.findAll { !it.isEmpty() }
+
+// The release workflow generates notes into CHANGELOG_RELEASE.md and points
+// SVCO_CHANGELOG_FILE at it. Locally, a tracked CHANGELOG.md is used if present.
+def changelogFile = rootProject.file(System.getenv("SVCO_CHANGELOG_FILE") ?: "CHANGELOG.md")
+
+// Resolved out here on purpose: inside the modrinth block Groovy looks names up
+// on the Minotaur extension first and never reaches the project's tasks.
+// The obfuscated pipeline publishes the remapped jar; 26.x+ ships unobfuscated
+// and has no remapJar at all, so there the plain jar is the artifact.
+def uploadTask = tasks.findByName("remapJar") ?: tasks.getByName("jar")
+
+modrinth {
+	projectId = project.modrinth_project_id
+	versionNumber = project.version.toString()                       // 1.0.0+1.21.8
+	versionName = "${project.mod_display_name} ${project.version}"
+	versionType = project.modrinth_version_type                      // release | beta | alpha
+	uploadFile = uploadTask
+	gameVersions = modrinthGameVersions
+	loaders = ["fabric"]
+	changelog = changelogFile.exists() ? changelogFile.text : "No changelog was specified."
+	// -Pmodrinth_debug=true builds and prints the payload without uploading
+	debugMode = Boolean.parseBoolean(project.findProperty("modrinth_debug") as String)
+
+	dependencies {
+		required.project "simple-voice-chat"
+		required.project "fabric-api"
+		optional.project "modmenu"
+	}
+}
+
+// configure the maven publication
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			from components.java
+		}
+	}
+
+	// See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
+	repositories {
+		// Add repositories to publish to here.
+		// Notice: This block does NOT have the same function as the block in the top level.
+		// The repositories here will be used for publishing your artifact, not for
+		// retrieving dependencies.
+	}
+}

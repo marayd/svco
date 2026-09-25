@@ -1,0 +1,12 @@
+{
+	"required": true,
+	"package": "org.mryd.svco.client.mixin",
+	"compatibilityLevel": "${mixin_java_level}",
+	"client": [
+		"ClientManagerAccessor",
+		"ClientPlayerStateManagerAccessor"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

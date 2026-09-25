@@ -1,0 +1,20 @@
+plugins {
+	id 'dev.kikugie.stonecutter'
+}
+
+stonecutter.active "26.2" /* [SC] DO NOT EDIT */
+
+// Build every registered version: ./gradlew build (each version is a subproject)
+
+// Собирает jar всех версий в build/allJars: ./gradlew collectJars
+tasks.register('collectJars', Copy) {
+	group = 'build'
+	description = 'Copies all version jars into build/allJars'
+	subprojects.each { sub ->
+		dependsOn "${sub.path}:build"
+		from(sub.layout.buildDirectory.dir('libs')) {
+			exclude '*-sources.jar'
+		}
+	}
+	into layout.buildDirectory.dir('allJars')
+}

@@ -1,0 +1,73 @@
+name: Build
+
+# Compiles every Stonecutter version on push and pull request. Publishing lives
+# in release.yml; this workflow never touches Modrinth.
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.github/FUNDING.yml'
+      - 'relay-rs/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.github/FUNDING.yml'
+      - 'relay-rs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: MC ${{ matrix.minecraft }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        minecraft:
+          - '1.20.1'
+          - '1.20.4'
+          - '1.20.6'
+          - '1.21.1'
+          - '1.21.4'
+          - '1.21.5'
+          - '1.21.8'
+          - '1.21.10'
+          - '1.21.11'
+          - '26.1.2'
+          - '26.2'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Drop the developer's local JDK path
+        # gradle.properties pins org.gradle.java.home to a Windows path; on the
+        # runner the JDK from setup-java is the right one.
+        run: sed -i '/^org\.gradle\.java\.home=/d' gradle.properties
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew --no-daemon --stacktrace ":${{ matrix.minecraft }}:build"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: svco-${{ matrix.minecraft }}
+          path: |
+            versions/${{ matrix.minecraft }}/build/libs/*.jar
+            !versions/${{ matrix.minecraft }}/build/libs/*-sources.jar
+          if-no-files-found: error

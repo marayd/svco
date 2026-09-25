@@ -1,0 +1,235 @@
+name: Release
+
+# Publishes every Stonecutter build to Modrinth and attaches the jars to a
+# GitHub Release.
+#
+#   git tag v1.0.1 && git push origin v1.0.1    -> release channel
+#   git tag v1.1.0-beta.1 && git push ...       -> beta channel
+#   Actions -> Release -> Run workflow          -> pick version + channel manually
+#
+# Requires the MODRINTH_TOKEN repository secret (a Modrinth PAT with
+# "Create versions" scope).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Mod version, without the leading v (default: mod_version from gradle.properties)'
+        required: false
+        type: string
+      version_type:
+        description: 'Modrinth release channel'
+        required: true
+        default: release
+        type: choice
+        options:
+          - release
+          - beta
+          - alpha
+      dry_run:
+        description: 'Build everything and print the Modrinth payload without publishing'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+# Never let two releases upload to Modrinth at the same time, and never cancel
+# a run halfway through publishing.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  JAVA_VERSION: '25'
+
+jobs:
+  prepare:
+    name: Resolve version and changelog
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      version_type: ${{ steps.meta.outputs.version_type }}
+      dry_run: ${{ steps.meta.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # full history so the changelog can diff against the previous tag
+
+      - name: Resolve release metadata
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TAG_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_VERSION_TYPE: ${{ inputs.version_type }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            version="${TAG_NAME#v}"
+            # Pre-release suffixes decide the Modrinth channel.
+            case "$version" in
+              *alpha*)      version_type=alpha ;;
+              *beta*|*rc*)  version_type=beta ;;
+              *)            version_type=release ;;
+            esac
+            dry_run=false
+          else
+            version="$INPUT_VERSION"
+            if [ -z "$version" ]; then
+              version="$(sed -n 's/^mod_version=//p' gradle.properties)"
+            fi
+            version_type="$INPUT_VERSION_TYPE"
+            dry_run="$INPUT_DRY_RUN"
+          fi
+
+          if [ -z "$version" ]; then
+            echo "::error::Could not resolve a version to publish"
+            exit 1
+          fi
+
+          echo "version=$version"           >> "$GITHUB_OUTPUT"
+          echo "version_type=$version_type" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$dry_run"           >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Release $version"
+            echo "- channel: \`$version_type\`"
+            echo "- dry run: \`$dry_run\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate changelog
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TAG_NAME: ${{ github.ref_name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            head_ref="$TAG_NAME"
+            previous="$(git describe --tags --abbrev=0 "${TAG_NAME}^" 2>/dev/null || true)"
+          else
+            head_ref="HEAD"
+            previous="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          fi
+
+          {
+            echo "## $VERSION"
+            echo
+            if [ -n "$previous" ]; then
+              git log --no-merges --pretty=format:'- %s' "${previous}..${head_ref}"
+              echo
+              echo
+              echo "**Full changelog**: ${{ github.server_url }}/${{ github.repository }}/compare/${previous}...${head_ref}"
+            else
+              git log --no-merges --pretty=format:'- %s' "$head_ref"
+              echo
+            fi
+          } > CHANGELOG_RELEASE.md
+
+          cat CHANGELOG_RELEASE.md
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: changelog
+          path: CHANGELOG_RELEASE.md
+          retention-days: 7
+
+  publish-modrinth:
+    name: MC ${{ matrix.minecraft }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      # One broken Minecraft version must not block the others; re-run the
+      # failed leg afterwards.
+      fail-fast: false
+      matrix:
+        minecraft:
+          - '1.20.1'
+          - '1.20.4'
+          - '1.20.6'
+          - '1.21.1'
+          - '1.21.4'
+          - '1.21.5'
+          - '1.21.8'
+          - '1.21.10'
+          - '1.21.11'
+          - '26.1.2'
+          - '26.2'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: changelog
+
+      - name: Drop the developer's local JDK path
+        # gradle.properties pins org.gradle.java.home to a Windows path; on the
+        # runner the JDK from setup-java is the right one.
+        run: sed -i '/^org\.gradle\.java\.home=/d' gradle.properties
+
+      - name: Build and publish to Modrinth
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          SVCO_CHANGELOG_FILE: CHANGELOG_RELEASE.md
+          VERSION: ${{ needs.prepare.outputs.version }}
+          VERSION_TYPE: ${{ needs.prepare.outputs.version_type }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew --no-daemon --stacktrace ":${{ matrix.minecraft }}:modrinth" \
+            -Pmod_version="$VERSION" \
+            -Pmodrinth_version_type="$VERSION_TYPE" \
+            -Pmodrinth_debug="$DRY_RUN"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: svco-${{ matrix.minecraft }}
+          path: |
+            versions/${{ matrix.minecraft }}/build/libs/*.jar
+            !versions/${{ matrix.minecraft }}/build/libs/*-sources.jar
+          if-no-files-found: error
+
+  github-release:
+    name: GitHub Release
+    needs: [prepare, publish-modrinth]
+    if: needs.prepare.outputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: svco-*
+          merge-multiple: true
+          path: dist
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: changelog
+
+      - name: List artifacts
+        run: ls -la dist
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          # On a manual run this creates the tag on the triggering commit.
+          tag_name: v${{ needs.prepare.outputs.version }}
+          name: ${{ needs.prepare.outputs.version }}
+          body_path: CHANGELOG_RELEASE.md
+          prerelease: ${{ needs.prepare.outputs.version_type != 'release' }}
+          files: dist/*.jar
+          fail_on_unmatched_files: true

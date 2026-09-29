@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "svco-test",
+	"version": "1.0.0",
+	"name": "Simple Voice Online game tests",
+	"environment": "client",
+	"entrypoints": {
+		"fabric-client-gametest": [
+			"org.mryd.svco.test.SvcoClientGameTest"
+		]
+	},
+	"depends": {
+		"svco": "*"
+	}
+}

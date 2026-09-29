@@ -1,6 +1,10 @@
 package org.mryd.svco.client.signal;
 
-import com.mojang.authlib.minecraft.MinecraftSessionService;
+//? if >=26.3 {
+import com.mojang.authlib.minecraft.SessionService;
+//?} else {
+/*import com.mojang.authlib.minecraft.MinecraftSessionService;
+*///?}
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.User;
 import org.mryd.svco.Svco;
@@ -18,9 +22,11 @@ public final class MojangAuth implements SignalingClient.SessionAuthenticator {
     @Override
     public CompletableFuture<Void> joinServer(String serverId) {
         Minecraft minecraft = Minecraft.getInstance();
-        //? if >=1.21.9 {
-        MinecraftSessionService sessions = minecraft.services().sessionService();
-        //?} else {
+        //? if >=26.3 {
+        SessionService sessions = minecraft.services().sessionService();
+        //?} else if >=1.21.9 {
+        /*MinecraftSessionService sessions = minecraft.services().sessionService();
+        *///?} else {
         /*MinecraftSessionService sessions = minecraft.getMinecraftSessionService();
         *///?}
         User user = minecraft.getUser();

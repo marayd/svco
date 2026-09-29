@@ -15,7 +15,9 @@ import net.minecraft.resources.Identifier;
 //?} else if >=1.21.9 {
 /*import net.minecraft.resources.ResourceLocation;
 *///?}
-import org.lwjgl.glfw.GLFW;
+//? if <26.3
+/*import org.lwjgl.glfw.GLFW;
+*/
 import org.mryd.svco.client.gui.AlphaNoticeScreen;
 import org.mryd.svco.client.gui.SvcoConfigScreen;
 
@@ -31,10 +33,14 @@ public class SvcoClient implements ClientModInitializer {
 		//?} else if >=1.21.9 {
 		/*KeyMapping.Category category = KeyMapping.Category.register(ResourceLocation.fromNamespaceAndPath("svco", "main"));
 		*///?}
-		//? if >=26.1 {
+		//? if >=26.3 {
+		// 26.3 moved input from GLFW to SDL3: key types and codes changed.
 		KeyMapping openSettings = KeyMappingHelper.registerKeyMapping(
+				new KeyMapping("key.svco.settings", InputConstants.Type.KEYBOARD, InputConstants.KEY_O, category));
+		//?} else if >=26.1 {
+		/*KeyMapping openSettings = KeyMappingHelper.registerKeyMapping(
 				new KeyMapping("key.svco.settings", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_O, category));
-		//?} else if >=1.21.9 {
+		*///?} else if >=1.21.9 {
 		/*KeyMapping openSettings = KeyBindingHelper.registerKeyBinding(
 				new KeyMapping("key.svco.settings", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_O, category));
 		*///?} else {

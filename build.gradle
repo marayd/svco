@@ -48,6 +48,22 @@ loom {
 	}
 }
 
+// Client game test (./gradlew :26.3:runClientGameTest): boots a real client,
+// creates a singleplayer world and opens the mod's screens, so crashes that a
+// plain compile cannot see (mixins, world join, GUI) fail the task.
+// Only wired for 26.x+, where the unobfuscated Loom exposes fabricApi.configureTests.
+if (!legacyMc) {
+	fabricApi {
+		configureTests {
+			createSourceSet = true
+			modId = "svco-test"
+			enableGameTests = false
+			enableClientGameTests = true
+			eula = true // Agrees to the Minecraft EULA for the test run
+		}
+	}
+}
+
 // Constant for guarding code that differs between SVC 2.5.x (1.20.4/1.20.6) and 2.6.x
 stonecutter {
 	constants.put("svc26", !project.svc_artifact.contains("-2.5."))

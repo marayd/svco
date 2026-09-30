@@ -1,12 +1,9 @@
 package org.mryd.svco.client;
 
 import com.google.gson.Gson;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.loader.api.FabricLoader;
-import net.fabricmc.loader.api.ModContainer;
-import net.fabricmc.loader.api.metadata.ModOrigin;
 import net.minecraft.client.Minecraft;
 import org.mryd.svco.Svco;
+import org.mryd.svco.client.platform.Platform;
 import org.mryd.svco.client.signal.SignalMessages;
 
 import java.io.IOException;
@@ -23,7 +20,6 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.HexFormat;
-import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -70,17 +66,15 @@ public final class UpdateManager {
         long size;
     }
 
-    /** Defers the check to the first client tick so toasts have a Minecraft
-     *  instance to land on; mod init runs too early for that. */
-    public static void register() {
-        ClientTickEvents.END_CLIENT_TICK.register(minecraft -> {
-            if (!checkStarted) {
-                checkStarted = true;
-                if (SvcoConfig.get().checkUpdates) {
-                    checkAsync(minecraft);
-                }
+    /** Called every client tick; defers the check to the first one so toasts
+     *  have a Minecraft instance to land on, mod init runs too early for that. */
+    public static void tick(Minecraft minecraft) {
+        if (!checkStarted) {
+            checkStarted = true;
+            if (SvcoConfig.get().checkUpdates) {
+                checkAsync(minecraft);
             }
-        });
+        }
     }
 
     private static void checkAsync(Minecraft minecraft) {
@@ -92,7 +86,7 @@ public final class UpdateManager {
     }
 
     private static void checkNow(Minecraft minecraft) {
-        String query = "/api/v1/update?loader=fabric"
+        String query = "/api/v1/update?loader=" + urlEncode(Platform.get().loader())
                 + "&version=" + urlEncode(modVersion())
                 + "&protocol=" + SignalMessages.PROTOCOL_VERSION
                 + "&mc=" + urlEncode(minecraftVersion());
@@ -153,7 +147,7 @@ public final class UpdateManager {
         Svco.LOGGER.info("Update available: {} -> {} (mandatory: {}, page: {})",
                 modVersion(), latest.version, mandatory, latest.pageUrl);
 
-        Optional<Path> currentJar = currentJar();
+        Optional<Path> currentJar = Platform.get().modJar();
         if (SvcoConfig.get().autoUpdate && currentJar.isPresent() && installable(latest)) {
             downloadAndInstall(minecraft, client, latest, currentJar.get(), mandatory);
         } else {
@@ -282,18 +276,6 @@ public final class UpdateManager {
         });
     }
 
-    /** The single jar the mod was loaded from; empty in a dev environment. */
-    private static Optional<Path> currentJar() {
-        return FabricLoader.getInstance().getModContainer(Svco.MOD_ID)
-                .map(ModContainer::getOrigin)
-                .filter(origin -> origin.getKind() == ModOrigin.Kind.PATH)
-                .map(ModOrigin::getPaths)
-                .filter(paths -> paths.size() == 1)
-                .map(paths -> paths.get(0))
-                .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar")
-                        && Files.isRegularFile(path));
-    }
-
     private static void deleteQuietly(Path path) {
         try {
             Files.deleteIfExists(path);
@@ -302,15 +284,11 @@ public final class UpdateManager {
     }
 
     private static String modVersion() {
-        return FabricLoader.getInstance().getModContainer(Svco.MOD_ID)
-                .map(container -> container.getMetadata().getVersion().getFriendlyString())
-                .orElse("unknown");
+        return Platform.get().modVersion();
     }
 
     private static String minecraftVersion() {
-        return FabricLoader.getInstance().getModContainer("minecraft")
-                .map(container -> container.getMetadata().getVersion().getFriendlyString())
-                .orElse("unknown");
+        return Platform.get().minecraftVersion();
     }
 
     private static String urlEncode(String value) {

@@ -5,6 +5,18 @@ pluginManagement {
 			url = 'https://maven.fabricmc.net/'
 		}
 		maven {
+			name = 'NeoForged'
+			url = 'https://maven.neoforged.net/releases'
+		}
+		maven {
+			name = 'MinecraftForge'
+			url = 'https://maven.minecraftforge.net/'
+		}
+		maven {
+			name = 'Architectury'
+			url = 'https://maven.architectury.dev/'
+		}
+		maven {
 			name = 'KikuGie'
 			url = 'https://maven.kikugie.dev/releases'
 		}
@@ -15,14 +27,33 @@ pluginManagement {
 
 plugins {
 	id 'dev.kikugie.stonecutter' version '0.9.6'
+	// ModDevGradle runs its tools on the Java version of the target Minecraft
+	// (17 for 1.20.x); lets Gradle download that JDK when it is not installed.
+	id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
 }
+
+// Every Minecraft version is built for each loader. A node is named
+// "<minecraft>-<loader>" (its properties live in versions/<node>/) and is
+// configured by build.<loader>.gradle. NeoForge starts at 1.20.4: its 1.20.1
+// release is a Forge fork that current Simple Voice Chat does not target.
+def minecraftVersions = [
+		'1.20.1', '1.20.4', '1.20.6',
+		'1.21.1', '1.21.4', '1.21.5', '1.21.8',
+		'1.21.10', '1.21.11', '26.1.2', '26.2', '26.3'
+]
+def loaders = ['fabric', 'forge', 'neoforge']
 
 stonecutter {
 	create(rootProject) {
-		versions '1.20.1', '1.20.4', '1.20.6',
-				'1.21.1', '1.21.4', '1.21.5', '1.21.8',
-				'1.21.10', '1.21.11', '26.1.2', '26.2', '26.3'
-		vcsVersion = '26.3'
+		minecraftVersions.each { mc ->
+			loaders.each { loader ->
+				if (loader == 'neoforge' && mc == '1.20.1') {
+					return
+				}
+				version("$mc-$loader", mc).buildscript("build.${loader}.gradle")
+			}
+		}
+		vcsVersion = '26.3-fabric'
 	}
 }
 

@@ -5,8 +5,6 @@ import de.maxhenkel.voicechat.net.SecretPacket;
 import de.maxhenkel.voicechat.voice.client.ClientManager;
 import de.maxhenkel.voicechat.voice.client.ClientVoicechat;
 import de.maxhenkel.voicechat.voice.client.ClientVoicechatConnection;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ServerData;
 import org.mryd.svco.Svco;
@@ -28,8 +26,9 @@ import java.util.UUID;
  * reconnect is enabled, retries follow an exponential backoff (5s, 10s, 20s,
  * 40s, 60s, 60s...) until {@code maxReconnectAttempts} is exhausted.
  *
- * All state transitions happen on the client thread: tick events run there,
- * and async connect callbacks are marshalled through {@code minecraft.execute}.
+ * All state transitions happen on the client thread: the loader forwards its
+ * tick and join/leave events from there (see {@link SvcoClient}), and async
+ * connect callbacks are marshalled through {@code minecraft.execute}.
  */
 public class FallbackManager {
 
@@ -65,11 +64,8 @@ public class FallbackManager {
         return instance;
     }
 
-    public void register() {
+    FallbackManager() {
         instance = this;
-        ClientPlayConnectionEvents.JOIN.register((handler, sender, minecraft) -> onJoin(minecraft));
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, minecraft) -> reset());
-        ClientTickEvents.END_CLIENT_TICK.register(this::onTick);
     }
 
     // ---- GUI-facing state ----------------------------------------------
@@ -139,7 +135,7 @@ public class FallbackManager {
 
     // ---- lifecycle -------------------------------------------------------
 
-    private void onJoin(Minecraft minecraft) {
+    void onJoin(Minecraft minecraft) {
         reset();
         if (!SvcoConfig.get().enabled) {
             return;
@@ -150,6 +146,10 @@ public class FallbackManager {
         }
         status = Status.DETECTING;
         ticksWaited = 0;
+    }
+
+    void onDisconnect() {
+        reset();
     }
 
     private synchronized void reset() {
@@ -190,7 +190,7 @@ public class FallbackManager {
         }
     }
 
-    private void onTick(Minecraft minecraft) {
+    void onTick(Minecraft minecraft) {
         if (minecraft.player == null) {
             return;
         }

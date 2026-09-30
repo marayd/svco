@@ -14,29 +14,29 @@ import org.mryd.svco.client.SvcoConfig;
 import java.util.List;
 
 /**
- * One-time notice shown over the title screen on first launch: this mod is
- * alpha software — bugs, crashes and voice dropouts are expected. Dismissing
- * it (button or Esc) records the fact in the config so it never reappears.
+ * One-time notice shown over the title screen on first launch: what the mod
+ * does and that it updates itself from Modrinth. Dismissing it (button or Esc)
+ * records the fact in the config so it never reappears.
  */
-public class AlphaNoticeScreen extends Screen {
+public class WelcomeScreen extends Screen {
 
     private static final int PANEL_BG = 0xC0101014;
     private static final int PANEL_BORDER = 0xFF3A3A46;
     private static final int LINE_HEIGHT = 12;
 
     private static final List<String> BODY_KEYS = List.of(
-            "svco.alpha.line1", "svco.alpha.line2", "svco.alpha.line3", "svco.alpha.line4");
+            "svco.welcome.line1", "svco.welcome.line2", "svco.welcome.line3", "svco.welcome.line4");
 
     private final Screen parent;
 
-    public AlphaNoticeScreen(Screen parent) {
-        super(Component.translatable("svco.alpha.title"));
+    public WelcomeScreen(Screen parent) {
+        super(Component.translatable("svco.welcome.title"));
         this.parent = parent;
     }
 
     @Override
     protected void init() {
-        addRenderableWidget(Button.builder(Component.translatable("svco.alpha.accept"), button -> onClose())
+        addRenderableWidget(Button.builder(Component.translatable("svco.welcome.accept"), button -> onClose())
                 .bounds(width / 2 - 100, textTop() + (2 + BODY_KEYS.size()) * LINE_HEIGHT + 16, 200, 20)
                 .build());
     }
@@ -49,7 +49,7 @@ public class AlphaNoticeScreen extends Screen {
     @Override
     public void onClose() {
         SvcoConfig config = SvcoConfig.get();
-        config.alphaNoticeShown = true;
+        config.welcomeShown = true;
         config.save();
         //? if >=26.2 {
         minecraft.gui.setScreen(parent);

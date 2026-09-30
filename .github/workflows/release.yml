@@ -1,7 +1,7 @@
 name: Release
 
-# Publishes every Stonecutter build to Modrinth and attaches the jars to a
-# GitHub Release.
+# Publishes every Stonecutter build (Fabric, Forge and NeoForge for each
+# Minecraft version) to Modrinth and attaches the jars to a GitHub Release.
 #
 #   git tag v1.0.1 && git push origin v1.0.1    -> release channel
 #   git tag v1.1.0-beta.1 && git push ...       -> beta channel
@@ -190,10 +190,16 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           VERSION_TYPE: ${{ needs.prepare.outputs.version_type }}
           DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          MC: ${{ matrix.minecraft }}
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew --no-daemon --stacktrace ":${{ matrix.minecraft }}:modrinth" \
+          # Every loader node of this Minecraft version: versions/<mc>-<loader>
+          tasks=()
+          for dir in versions/"$MC"-*/; do
+            tasks+=(":$(basename "$dir"):modrinth")
+          done
+          ./gradlew --no-daemon --stacktrace "${tasks[@]}" \
             -Pmod_version="$VERSION" \
             -Pmodrinth_version_type="$VERSION_TYPE" \
             -Pmodrinth_debug="$DRY_RUN"
@@ -202,8 +208,8 @@ jobs:
         with:
           name: svco-${{ matrix.minecraft }}
           path: |
-            versions/${{ matrix.minecraft }}/build/libs/*.jar
-            !versions/${{ matrix.minecraft }}/build/libs/*-sources.jar
+            versions/${{ matrix.minecraft }}-*/build/libs/*.jar
+            !versions/${{ matrix.minecraft }}-*/build/libs/*-sources.jar
           if-no-files-found: error
 
   github-release:

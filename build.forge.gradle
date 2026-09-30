@@ -1,0 +1,114 @@
+plugins {
+	// Forge 1.20.1/1.20.4 still run on SRG names: Architectury Loom builds
+	// against Mojmap and remaps the jar to SRG. From 1.20.6 Forge runs on
+	// Mojang names and is built with ForgeGradle 7, as the official MDKs do.
+	id 'dev.architectury.loom' version "${architectury_loom_version}" apply false
+	id 'net.minecraftforge.gradle' version "${forgegradle_version}" apply false
+	id 'com.modrinth.minotaur' version '2.10.0'
+}
+
+def srgRuntime = project.minecraft_version in ['1.20.1', '1.20.4']
+// Architectury Loom reads `loom.platform=forge` from versions/<node>/gradle.properties
+apply plugin: srgRuntime ? 'dev.architectury.loom' : 'net.minecraftforge.gradle'
+
+ext.loader = 'forge'
+ext.metadataProps = [
+		minecraft_range: project.minecraft_range_maven,
+		loader_range   : project.forge_range,
+		voicechat_range: project.voicechat_range
+]
+
+// Same layout as Fabric's split source sets: shared code in main, client
+// code (everything this mod does) in client, both shipped in one jar.
+// The client source set sees everything main compiles against (Minecraft,
+// the loader, SVC), whichever plugin put it there.
+sourceSets {
+	client {
+		compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+		runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+	}
+}
+
+repositories {
+	maven {
+		url = 'https://maven.maxhenkel.de/repository/public'
+		content {
+			includeGroup "de.maxhenkel.voicechat"
+		}
+	}
+	maven {
+		name = "Modrinth"
+		url = "https://api.modrinth.com/maven"
+		content {
+			includeGroup "maven.modrinth"
+		}
+	}
+}
+
+if (srgRuntime) {
+	loom {
+		silentMojangMappingsLicense()
+
+		forge {
+			// Written to the manifest as MixinConfigs
+			mixinConfig 'svco.client.mixins.json'
+		}
+
+		mods {
+			svco {
+				sourceSet sourceSets.main
+				sourceSet sourceSets.client
+			}
+		}
+	}
+
+	dependencies {
+		minecraft "com.mojang:minecraft:${project.minecraft_version}"
+		mappings loom.officialMojangMappings()
+		forge "net.minecraftforge:forge:${project.forge_version}"
+		// SVC is published SRG-mapped; mod* remaps it onto the Mojmap dev classpath
+		modImplementation "maven.modrinth:simple-voice-chat:${project.svc_artifact}"
+	}
+
+	// remapJar turns `jar` (Mojmap) into the SRG jar Forge loads
+	ext.modrinthUploadTask = tasks.getByName('remapJar')
+} else {
+	minecraft {
+		// 26.x ships unobfuscated, older versions need Mojang's names
+		if (project.minecraft_version.startsWith('1.')) {
+			mappings channel: 'official', version: project.minecraft_version
+		}
+	}
+
+	repositories {
+		minecraft.mavenizer(it)
+		maven fg.forgeMaven
+		maven fg.minecraftLibsMaven
+	}
+
+	dependencies {
+		implementation minecraft.dependency("net.minecraftforge:forge:${project.forge_version}")
+		// Forge >= 1.20.6 mods are published with Mojang names: no remapping needed
+		implementation "maven.modrinth:simple-voice-chat:${project.svc_artifact}"
+	}
+
+	ext.modrinthUploadTask = tasks.getByName('jar')
+}
+
+apply from: rootProject.file('gradle/shared.gradle')
+
+dependencies {
+	implementation "de.maxhenkel.voicechat:voicechat-api:${project.voicechat_api_version}"
+}
+
+tasks.named('jar') {
+	from sourceSets.client.output
+	if (!srgRuntime) {
+		// Forge picks mixin configs up from the manifest
+		manifest.attributes('MixinConfigs': 'svco.client.mixins.json')
+	}
+}
+
+tasks.withType(ProcessResources).configureEach {
+	exclude 'fabric.mod.json', 'META-INF/neoforge.mods.toml'
+}

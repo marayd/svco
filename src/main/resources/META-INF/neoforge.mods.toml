@@ -1,0 +1,35 @@
+modLoader = "javafml"
+loaderVersion = "*"
+license = "All rights reserved"
+
+[[mods]]
+modId = "svco"
+version = "${version}"
+displayName = "Simple Voice Online"
+authors = "mryd"
+description = '''Client addon for Simple Voice Chat: when the server has no voice chat installed, routes voice through a standalone relay server so addon users can still talk.'''
+logoFile = "assets/svco/icon.png"
+
+[[mixins]]
+config = "svco.client.mixins.json"
+
+[[dependencies.svco]]
+modId = "neoforge"
+${required}
+versionRange = "${loader_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.svco]]
+modId = "minecraft"
+${required}
+versionRange = "${minecraft_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.svco]]
+modId = "voicechat"
+${required}
+versionRange = "${voicechat_range}"
+ordering = "AFTER"
+side = "BOTH"

@@ -1,0 +1,93 @@
+plugins {
+	// 'net.fabricmc.fabric-loom' targets the unobfuscated (26.x+) pipeline,
+	// classic 'fabric-loom' the obfuscated (<=1.21.x, Mojmap) one.
+	id 'net.fabricmc.fabric-loom' version "${loom_version}" apply false
+	id 'fabric-loom' version "${loom_version}" apply false
+	id 'com.modrinth.minotaur' version '2.10.0'
+}
+
+def legacyMc = project.minecraft_version.startsWith("1.")
+apply plugin: legacyMc ? 'fabric-loom' : 'net.fabricmc.fabric-loom'
+
+ext.loader = 'fabric'
+// The obfuscated pipeline publishes the remapped jar; 26.x+ ships unobfuscated
+// and has no remapJar at all, so there the plain jar is the artifact.
+ext.modrinthUploadTask = tasks.findByName("remapJar") ?: tasks.getByName("jar")
+ext.metadataProps = [
+		minecraft_range: project.minecraft_range,
+		loader_version : project.loader_version,
+		voicechat_dep  : project.voicechat_dep
+]
+apply from: rootProject.file('gradle/shared.gradle')
+
+repositories {
+	maven {
+		url = 'https://maven.maxhenkel.de/repository/public'
+		content {
+			includeGroup "de.maxhenkel.voicechat"
+		}
+	}
+	maven {
+		name = "Modrinth"
+		url = "https://api.modrinth.com/maven"
+		content {
+			includeGroup "maven.modrinth"
+		}
+	}
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"svco" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+// Client game test (./gradlew :26.3-fabric:runClientGameTest): boots a real client,
+// creates a singleplayer world and opens the mod's screens, so crashes that a
+// plain compile cannot see (mixins, world join, GUI) fail the task.
+// Only wired for 26.x+, where the unobfuscated Loom exposes fabricApi.configureTests.
+if (!legacyMc) {
+	fabricApi {
+		configureTests {
+			createSourceSet = true
+			modId = "svco-test"
+			enableGameTests = false
+			enableClientGameTests = true
+			eula = true // Agrees to the Minecraft EULA for the test run
+		}
+	}
+}
+
+dependencies {
+	// To change the versions see the per-version gradle.properties in versions/<mc>-fabric/
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	// 26.x+ ships unobfuscated; older versions need Mojang mappings, and their mod
+	// jars are intermediary-mapped, so they must go through mod* configurations
+	// to be remapped onto the Mojmap dev classpath.
+	if (legacyMc) {
+		mappings loom.officialMojangMappings()
+		modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+		modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+		// Settings screen entry in ModMenu; only the API is needed at compile time
+		modCompileOnly "maven.modrinth:modmenu:${project.modmenu_version}"
+		// Full SVC mod jar: the fallback addon touches internal classes (ClientManager, SecretPacket)
+		modImplementation "maven.modrinth:simple-voice-chat:${project.svc_artifact}"
+	} else {
+		implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+		implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+		compileOnly "maven.modrinth:modmenu:${project.modmenu_version}"
+		implementation "maven.modrinth:simple-voice-chat:${project.svc_artifact}"
+	}
+
+	implementation "de.maxhenkel.voicechat:voicechat-api:${project.voicechat_api_version}"
+}
+
+// Fabric reads fabric.mod.json; the Forge/NeoForge descriptors stay out of this jar.
+tasks.withType(ProcessResources).configureEach {
+	exclude 'META-INF/mods.toml', 'META-INF/neoforge.mods.toml'
+}

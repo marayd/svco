@@ -1,0 +1,92 @@
+plugins {
+	id 'net.neoforged.moddev' version "${moddev_version}"
+	id 'com.modrinth.minotaur' version '2.10.0'
+}
+
+ext.loader = 'neoforge'
+ext.modrinthUploadTask = tasks.getByName('jar')
+ext.metadataProps = [
+		minecraft_range: project.minecraft_range_maven,
+		loader_range   : project.neoforge_range,
+		voicechat_range: project.voicechat_range,
+		// NeoForge 20.4 still uses the Forge-era `mandatory` flag
+		required       : project.minecraft_version == '1.20.4' ? 'mandatory = true' : 'type = "required"'
+]
+
+// Same layout as Fabric's split source sets: shared code in main, client
+// code (everything this mod does) in client, both shipped in one jar.
+// The client source set sees everything main compiles against (Minecraft,
+// the loader, SVC), whichever plugin put it there.
+sourceSets {
+	client {
+		compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+		runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+	}
+}
+
+apply from: rootProject.file('gradle/shared.gradle')
+
+repositories {
+	maven {
+		url = 'https://maven.maxhenkel.de/repository/public'
+		content {
+			includeGroup "de.maxhenkel.voicechat"
+		}
+	}
+	maven {
+		name = "Modrinth"
+		url = "https://api.modrinth.com/maven"
+		content {
+			includeGroup "maven.modrinth"
+		}
+	}
+	// NeoForge 20.4/20.6 tooling asks for log4j 2.11.+, which only Central lists
+	mavenCentral()
+}
+
+neoForge {
+	version = project.neoforge_version
+
+	addModdingDependenciesTo(sourceSets.client)
+
+	runs {
+		client {
+			client()
+			sourceSet = sourceSets.client
+			gameDirectory = project.file('run')
+			// -Psvco_quickplay=host:port joins a server straight from launch (runtime tests)
+			if (project.hasProperty('svco_quickplay')) {
+				programArguments.addAll('--quickPlayMultiplayer', project.property('svco_quickplay'))
+			}
+			if (project.hasProperty('svco_hosts_file')) {
+				systemProperty 'jdk.net.hosts.file', project.property('svco_hosts_file')
+			}
+		}
+	}
+
+	mods {
+		svco {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+dependencies {
+	// Full SVC mod jar: the fallback addon touches internal classes (ClientManager, SecretPacket)
+	implementation "maven.modrinth:simple-voice-chat:${project.svc_artifact}"
+	implementation "de.maxhenkel.voicechat:voicechat-api:${project.voicechat_api_version}"
+}
+
+tasks.named('jar') {
+	from sourceSets.client.output
+}
+
+tasks.withType(ProcessResources).configureEach {
+	// META-INF/mods.toml is the Forge descriptor
+	exclude 'fabric.mod.json', 'META-INF/mods.toml'
+	if (project.minecraft_version == '1.20.4') {
+		// NeoForge 20.4 predates the neoforge.mods.toml file name
+		rename 'neoforge\\.mods\\.toml', 'mods.toml'
+	}
+}

@@ -20,12 +20,6 @@
 	"svco.update.installed_required": "Required update %s downloaded — restart the game to get voice back",
 	"svco.update.failed": "Automatic update failed (%s) — please update manually from Modrinth",
 
-	"svco.welcome.title": "Simple Voice Online",
-	"svco.welcome.line1": "Thanks for installing Simple Voice Online!",
-	"svco.welcome.line2": "Voice chat works even on servers without Simple Voice Chat.",
-	"svco.welcome.line3": "Updates may be downloaded automatically from Modrinth",
-	"svco.welcome.line4": "(you can turn this off in the settings, default key: O).",
-	"svco.welcome.accept": "Got it",
 
 	"svco.gui.title": "Simple Voice Online",
 	"svco.gui.section.general": "General",

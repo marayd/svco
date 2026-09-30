@@ -5,7 +5,6 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.fabricmc.loader.api.FabricLoader;
 import org.mryd.svco.client.gui.SvcoConfigScreen;
-import org.mryd.svco.client.gui.WelcomeScreen;
 
 /**
  * Smoke test: the mod must survive the title screen, its own screens and a
@@ -18,11 +17,6 @@ public class SvcoClientGameTest implements FabricClientGameTest {
 		if (!FabricLoader.getInstance().isModLoaded("svco")) {
 			throw new AssertionError("svco is not loaded");
 		}
-
-		// First launch shows the one-time welcome screen on the title screen.
-		context.waitForScreen(WelcomeScreen.class);
-		context.takeScreenshot("svco-welcome");
-		context.clickScreenButton("svco.welcome.accept");
 
 		context.setScreen(() -> new SvcoConfigScreen(null));
 		context.waitForScreen(SvcoConfigScreen.class);

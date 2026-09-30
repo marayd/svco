@@ -2,7 +2,6 @@ package org.mryd.svco.client;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.annotations.SerializedName;
 import org.mryd.svco.Svco;
 import org.mryd.svco.client.platform.Platform;
 
@@ -44,10 +43,6 @@ public class SvcoConfig {
 
     public boolean checkUpdates = true; // ask the relay's update API at startup
     public boolean autoUpdate = true;   // download new versions into mods/ automatically
-    // One-time welcome screen; older configs stored it as "alphaNoticeShown",
-    // so anyone who already dismissed that notice is not shown it again.
-    @SerializedName(value = "welcomeShown", alternate = "alphaNoticeShown")
-    public boolean welcomeShown = false;
 
     private static SvcoConfig instance;
 

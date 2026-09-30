@@ -3,7 +3,6 @@ package org.mryd.svco.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.TitleScreen;
 //? if >=1.21.11 {
 import net.minecraft.resources.Identifier;
 //?} else if >=1.21.9 {
@@ -12,7 +11,6 @@ import net.minecraft.resources.Identifier;
 //? if <26.3
 /*import org.lwjgl.glfw.GLFW;*/
 import org.mryd.svco.client.gui.SvcoConfigScreen;
-import org.mryd.svco.client.gui.WelcomeScreen;
 import org.mryd.svco.client.platform.Platform;
 
 /**
@@ -68,19 +66,12 @@ public final class SvcoClient {
 		fallback.onTick(minecraft);
 		UpdateManager.tick(minecraft);
 
-		// First launch: introduce the mod once.
 		//? if >=26.2 {
-		if (!SvcoConfig.get().welcomeShown && minecraft.gui.screen() instanceof TitleScreen) {
-			minecraft.gui.setScreen(new WelcomeScreen(minecraft.gui.screen()));
-		}
 		while (settingsKey != null && settingsKey.consumeClick()) {
 			minecraft.gui.setScreen(new SvcoConfigScreen(null));
 		}
 		//?} else {
-		/*if (!SvcoConfig.get().welcomeShown && minecraft.screen instanceof TitleScreen) {
-			minecraft.setScreen(new WelcomeScreen(minecraft.screen));
-		}
-		while (settingsKey != null && settingsKey.consumeClick()) {
+		/*while (settingsKey != null && settingsKey.consumeClick()) {
 			minecraft.setScreen(new SvcoConfigScreen(null));
 		}
 		*///?}

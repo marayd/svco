@@ -20,12 +20,6 @@
 	"svco.update.installed_required": "Обязательное обновление %s скачано — перезапустите игру, чтобы вернуть голосовой чат",
 	"svco.update.failed": "Автообновление не удалось (%s) — обновите мод вручную с Modrinth",
 
-	"svco.welcome.title": "Simple Voice Online",
-	"svco.welcome.line1": "Спасибо за установку Simple Voice Online!",
-	"svco.welcome.line2": "Голосовой чат работает даже на серверах без Simple Voice Chat.",
-	"svco.welcome.line3": "Обновления могут скачиваться с Modrinth автоматически",
-	"svco.welcome.line4": "(это можно отключить в настройках, клавиша по умолчанию: O).",
-	"svco.welcome.accept": "Понятно",
 
 	"svco.gui.title": "Simple Voice Online",
 	"svco.gui.section.general": "Основные",

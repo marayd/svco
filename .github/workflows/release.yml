@@ -1,7 +1,7 @@
 name: Release
 
-# Publishes every Stonecutter build to Modrinth and attaches the jars to a
-# GitHub Release.
+# Publishes every Stonecutter build (Fabric, Forge and NeoForge for each
+# Minecraft version) to Modrinth and attaches the jars to a GitHub Release.
 #
 #   git tag v1.0.1 && git push origin v1.0.1    -> release channel
 #   git tag v1.1.0-beta.1 && git push ...       -> beta channel
@@ -29,6 +29,11 @@ on:
           - release
           - beta
           - alpha
+      nodes:
+        description: 'Only these nodes, comma separated (e.g. 26.2-fabric,26.1.2-fabric); empty = all'
+        required: false
+        default: ''
+        type: string
       dry_run:
         description: 'Build everything and print the Modrinth payload without publishing'
         required: false
@@ -190,10 +195,26 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           VERSION_TYPE: ${{ needs.prepare.outputs.version_type }}
           DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          MC: ${{ matrix.minecraft }}
+          NODES: ${{ inputs.nodes }}
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew --no-daemon --stacktrace ":${{ matrix.minecraft }}:modrinth" \
+          # Every loader node of this Minecraft version: versions/<mc>-<loader>,
+          # narrowed to the `nodes` input on a manual run that sets it
+          tasks=()
+          for dir in versions/"$MC"-*/; do
+            node="$(basename "$dir")"
+            if [ -n "$NODES" ] && [[ ",${NODES// /}," != *",$node,"* ]]; then
+              continue
+            fi
+            tasks+=(":$node:modrinth")
+          done
+          if [ ${#tasks[@]} -eq 0 ]; then
+            echo "No selected nodes for Minecraft $MC"
+            exit 0
+          fi
+          ./gradlew --no-daemon --stacktrace "${tasks[@]}" \
             -Pmod_version="$VERSION" \
             -Pmodrinth_version_type="$VERSION_TYPE" \
             -Pmodrinth_debug="$DRY_RUN"
@@ -202,9 +223,10 @@ jobs:
         with:
           name: svco-${{ matrix.minecraft }}
           path: |
-            versions/${{ matrix.minecraft }}/build/libs/*.jar
-            !versions/${{ matrix.minecraft }}/build/libs/*-sources.jar
-          if-no-files-found: error
+            versions/${{ matrix.minecraft }}-*/build/libs/*.jar
+            !versions/${{ matrix.minecraft }}-*/build/libs/*-sources.jar
+          # A run narrowed by `nodes` builds nothing for the other versions
+          if-no-files-found: ${{ inputs.nodes != '' && 'ignore' || 'error' }}
 
   github-release:
     name: GitHub Release
@@ -223,7 +245,7 @@ jobs:
           name: changelog
 
       - name: List artifacts
-        run: ls -la dist
+        run: find dist -name '*.jar' | sort
 
       - uses: softprops/action-gh-release@v3
         with:
@@ -232,5 +254,6 @@ jobs:
           name: ${{ needs.prepare.outputs.version }}
           body_path: CHANGELOG_RELEASE.md
           prerelease: ${{ needs.prepare.outputs.version_type != 'release' }}
-          files: dist/*.jar
+          # Each artifact keeps its <mc>-<loader>/build/libs/ layout
+          files: dist/**/*.jar
           fail_on_unmatched_files: true

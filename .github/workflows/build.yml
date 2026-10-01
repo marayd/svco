@@ -1,7 +1,8 @@
 name: Build
 
-# Compiles every Stonecutter version on push and pull request. Publishing lives
-# in release.yml; this workflow never touches Modrinth.
+# Compiles every Stonecutter node (each Minecraft version for Fabric, Forge and
+# NeoForge) on push and pull request. Publishing lives in release.yml; this
+# workflow never touches Modrinth.
 
 on:
   push:
@@ -60,15 +61,22 @@ jobs:
         run: sed -i '/^org\.gradle\.java\.home=/d' gradle.properties
 
       - name: Build
+        env:
+          MC: ${{ matrix.minecraft }}
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew --no-daemon --stacktrace ":${{ matrix.minecraft }}:build"
+          # Every loader node of this Minecraft version: versions/<mc>-<loader>
+          tasks=()
+          for dir in versions/"$MC"-*/; do
+            tasks+=(":$(basename "$dir"):build")
+          done
+          ./gradlew --no-daemon --stacktrace "${tasks[@]}"
 
       - uses: actions/upload-artifact@v7
         with:
           name: svco-${{ matrix.minecraft }}
           path: |
-            versions/${{ matrix.minecraft }}/build/libs/*.jar
-            !versions/${{ matrix.minecraft }}/build/libs/*-sources.jar
+            versions/${{ matrix.minecraft }}-*/build/libs/*.jar
+            !versions/${{ matrix.minecraft }}-*/build/libs/*-sources.jar
           if-no-files-found: error

@@ -12,17 +12,14 @@
 	"icon": "assets/svco/icon.png",
 	"environment": "*",
 	"entrypoints": {
-		"main": [
-			"org.mryd.svco.Svco"
-		],
 		"client": [
-			"org.mryd.svco.client.SvcoClient"
+			"org.mryd.svco.fabric.SvcoFabricClient"
 		],
 		"voicechat": [
 			"org.mryd.svco.client.SVCPlugin"
 		],
 		"modmenu": [
-			"org.mryd.svco.client.gui.ModMenuIntegration"
+			"org.mryd.svco.fabric.ModMenuIntegration"
 		]
 	},
 	"mixins": [

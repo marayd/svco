@@ -20,12 +20,6 @@
 	"svco.update.installed_required": "Required update %s downloaded — restart the game to get voice back",
 	"svco.update.failed": "Automatic update failed (%s) — please update manually from Modrinth",
 
-	"svco.alpha.title": "Simple Voice Online — ALPHA",
-	"svco.alpha.line1": "This mod is in early alpha.",
-	"svco.alpha.line2": "Bugs, crashes and voice dropouts are to be expected.",
-	"svco.alpha.line3": "Updates may be downloaded automatically from Modrinth",
-	"svco.alpha.line4": "(you can turn this off in the settings, default key: O).",
-	"svco.alpha.accept": "I understand",
 
 	"svco.gui.title": "Simple Voice Online",
 	"svco.gui.section.general": "General",

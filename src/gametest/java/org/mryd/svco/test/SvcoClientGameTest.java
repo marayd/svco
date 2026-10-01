@@ -4,7 +4,6 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.fabricmc.loader.api.FabricLoader;
-import org.mryd.svco.client.gui.AlphaNoticeScreen;
 import org.mryd.svco.client.gui.SvcoConfigScreen;
 
 /**
@@ -18,11 +17,6 @@ public class SvcoClientGameTest implements FabricClientGameTest {
 		if (!FabricLoader.getInstance().isModLoaded("svco")) {
 			throw new AssertionError("svco is not loaded");
 		}
-
-		// First launch shows the one-time alpha notice on the title screen.
-		context.waitForScreen(AlphaNoticeScreen.class);
-		context.takeScreenshot("svco-alpha-notice");
-		context.clickScreenButton("svco.alpha.accept");
 
 		context.setScreen(() -> new SvcoConfigScreen(null));
 		context.waitForScreen(SvcoConfigScreen.class);

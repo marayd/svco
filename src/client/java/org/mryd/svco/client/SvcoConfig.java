@@ -2,8 +2,8 @@ package org.mryd.svco.client;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import net.fabricmc.loader.api.FabricLoader;
 import org.mryd.svco.Svco;
+import org.mryd.svco.client.platform.Platform;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -43,7 +43,6 @@ public class SvcoConfig {
 
     public boolean checkUpdates = true; // ask the relay's update API at startup
     public boolean autoUpdate = true;   // download new versions into mods/ automatically
-    public boolean alphaNoticeShown = false; // one-time "this is alpha" screen
 
     private static SvcoConfig instance;
 
@@ -72,7 +71,7 @@ public class SvcoConfig {
     }
 
     private static Path path() {
-        return FabricLoader.getInstance().getConfigDir().resolve("svco.json");
+        return Platform.get().configDir().resolve("svco.json");
     }
 
     private static SvcoConfig load() {

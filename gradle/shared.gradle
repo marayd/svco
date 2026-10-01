@@ -1,0 +1,99 @@
+// Shared by build.fabric.gradle, build.forge.gradle and build.neoforge.gradle.
+// The including script sets `ext.loader` and applies its loader plugin and
+// Minotaur first; this file only relies on the `java` plugin and Minotaur.
+
+version = "${project.mod_version}+${project.minecraft_version}-${loader}"
+group = project.maven_group
+
+base {
+	// Without this the jar would be named after the subproject ("1.20.1-fabric-...")
+	archivesName = "svco"
+}
+
+// Java target per Minecraft version (17 for 1.20.1/1.20.4, 21 for 1.20.6-1.21.x, 25 for 26.x)
+ext.javaRelease = project.java_release as int
+
+// `//? if fabric {`, `//? if forge {` and `//? if neoforge {` in sources
+stonecutter {
+	['fabric', 'forge', 'neoforge'].each { constants.put(it, it == loader) }
+}
+
+// Every loader compiles the shared code in org.mryd.svco(.client); the
+// entrypoint packages of the other loaders are left out.
+def otherLoaders = ['fabric', 'forge', 'neoforge'] - [loader]
+sourceSets.configureEach { sourceSet ->
+	otherLoaders.each { sourceSet.java.exclude("org/mryd/svco/${it}/**") }
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = javaRelease
+	it.options.encoding = 'UTF-8'
+}
+
+java {
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.toVersion(javaRelease)
+	targetCompatibility = JavaVersion.toVersion(javaRelease)
+}
+
+// Loader metadata templates: fabric.mod.json, META-INF/mods.toml (Forge, and
+// NeoForge before 20.5) and META-INF/neoforge.mods.toml. Values common to all
+// of them live here; loader scripts add their own via `ext.metadataProps`.
+tasks.withType(ProcessResources).configureEach {
+	def props = [
+			version         : project.version,
+			java_version    : javaRelease,
+			mixin_java_level: project.mixin_java_level
+	] + (project.ext.has('metadataProps') ? project.ext.metadataProps : [:])
+	inputs.properties props
+
+	filesMatching(['fabric.mod.json', 'META-INF/mods.toml', 'META-INF/neoforge.mods.toml', 'svco.client.mixins.json']) {
+		expand props
+	}
+}
+
+tasks.named('jar') {
+	def projectName = project.name
+	inputs.property "projectName", projectName
+
+	from(rootProject.file("LICENSE")) {
+		rename { "${it}_$projectName" }
+	}
+}
+
+// Modrinth publishing. Every Stonecutter node uploads its own jar as a
+// separate Modrinth version:
+//   ./gradlew :1.21.8-neoforge:modrinth   one version
+//   ./gradlew modrinth                    all of them
+// MODRINTH_TOKEN must be in the environment; the release workflow supplies it.
+def modrinthGameVersions = project.modrinth_game_versions
+		.split(',')
+		.collect { it.trim() }
+		.findAll { !it.isEmpty() }
+
+// The release workflow generates notes into CHANGELOG_RELEASE.md and points
+// SVCO_CHANGELOG_FILE at it. Locally, a tracked CHANGELOG.md is used if present.
+def changelogFile = rootProject.file(System.getenv("SVCO_CHANGELOG_FILE") ?: "CHANGELOG.md")
+def loaderName = [fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge'][loader]
+
+modrinth {
+	projectId = project.modrinth_project_id
+	versionNumber = project.version.toString()                       // 1.2.0+1.21.8-neoforge
+	versionName = "${project.mod_display_name} ${project.mod_version} (${loaderName} ${project.minecraft_version})"
+	versionType = project.modrinth_version_type                      // release | beta | alpha
+	uploadFile = project.ext.modrinthUploadTask
+	gameVersions = modrinthGameVersions
+	loaders = project.ext.has('modrinthLoaders') ? project.ext.modrinthLoaders : [loader]
+	changelog = changelogFile.exists() ? changelogFile.text : "No changelog was specified."
+	// -Pmodrinth_debug=true builds and prints the payload without uploading
+	debugMode = Boolean.parseBoolean(project.findProperty("modrinth_debug") as String)
+
+	dependencies {
+		required.project "simple-voice-chat"
+		if (loader == 'fabric') {
+			required.project "fabric-api"
+			optional.project "modmenu"
+		}
+	}
+}

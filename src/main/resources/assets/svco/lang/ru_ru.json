@@ -20,12 +20,6 @@
 	"svco.update.installed_required": "Обязательное обновление %s скачано — перезапустите игру, чтобы вернуть голосовой чат",
 	"svco.update.failed": "Автообновление не удалось (%s) — обновите мод вручную с Modrinth",
 
-	"svco.alpha.title": "Simple Voice Online — АЛЬФА",
-	"svco.alpha.line1": "Мод находится в ранней альфа-версии.",
-	"svco.alpha.line2": "Возможны баги, краши и обрывы голосовой связи.",
-	"svco.alpha.line3": "Обновления могут скачиваться с Modrinth автоматически",
-	"svco.alpha.line4": "(это можно отключить в настройках, клавиша по умолчанию: O).",
-	"svco.alpha.accept": "Понятно",
 
 	"svco.gui.title": "Simple Voice Online",
 	"svco.gui.section.general": "Основные",

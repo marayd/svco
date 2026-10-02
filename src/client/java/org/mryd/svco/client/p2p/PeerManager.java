@@ -5,7 +5,6 @@ import org.mryd.svco.client.signal.SignalMessages;
 
 import java.io.IOException;
 import java.net.DatagramPacket;
-import java.net.DatagramSocket;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -20,6 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 /**
  * The P2P engine: one UDP socket shared by relay binds, hole punching and
@@ -30,6 +30,11 @@ import java.util.function.BiConsumer;
  * succeeds (and whenever the direct path goes stale) voice falls back to
  * blind forwarding through the relay. Voice is sealed once per frame with
  * the room key — the same ciphertext serves every peer on both paths.
+ *
+ * <p>Behind a SOCKS5 proxy ({@link UdpChannel#proxied()}) the socket is the
+ * proxy's UDP association: the relay and peers only see the proxy, so the
+ * host candidates that would reveal this machine's addresses are withheld
+ * and only the proxy's reflexive address is advertised.
  */
 public final class PeerManager implements AutoCloseable {
 
@@ -53,7 +58,8 @@ public final class PeerManager implements AutoCloseable {
     private final VoiceListener voiceListener;
     private final BiConsumer<String, List<SignalMessages.Candidate>> candidatePublisher;
 
-    private final DatagramSocket socket;
+    private final UdpChannel socket;
+    private final Consumer<String> onFailure;
     private final Thread readerThread;
     private final ScheduledExecutorService scheduler;
 
@@ -63,10 +69,16 @@ public final class PeerManager implements AutoCloseable {
     private volatile long lastBindMs;
     private volatile boolean closed;
 
+    /**
+     * @param socket    the UDP channel to use; owned (and closed) by this manager from now on
+     * @param onFailure invoked once if the socket dies while the manager is open
+     */
     public PeerManager(UUID selfUuid, RoomCrypto crypto, byte[] sessionToken,
                        InetSocketAddress relayAddress, long punchTimeoutMs,
+                       UdpChannel socket,
                        VoiceListener voiceListener,
-                       BiConsumer<String, List<SignalMessages.Candidate>> candidatePublisher) throws IOException {
+                       BiConsumer<String, List<SignalMessages.Candidate>> candidatePublisher,
+                       Consumer<String> onFailure) {
         this.selfUuid = selfUuid;
         this.crypto = crypto;
         this.sessionToken = sessionToken.clone();
@@ -75,7 +87,8 @@ public final class PeerManager implements AutoCloseable {
         this.voiceListener = voiceListener;
         this.candidatePublisher = candidatePublisher;
 
-        this.socket = new DatagramSocket();
+        this.socket = socket;
+        this.onFailure = onFailure;
         this.readerThread = new Thread(this::readLoop, "svco-p2p");
         this.readerThread.setDaemon(true);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -99,7 +112,10 @@ public final class PeerManager implements AutoCloseable {
         if (peers.putIfAbsent(uuid, peer) != null) {
             return;
         }
-        candidatePublisher.accept(uuid.toString(), localCandidates());
+        List<SignalMessages.Candidate> candidates = localCandidates();
+        if (!candidates.isEmpty()) { // behind a proxy: nothing to say until BIND_RESP
+            candidatePublisher.accept(uuid.toString(), candidates);
+        }
         Svco.LOGGER.info("Peer {} ({}) added, voice via relay until punched", name, uuid);
     }
 
@@ -176,11 +192,13 @@ public final class PeerManager implements AutoCloseable {
         DatagramPacket datagram = new DatagramPacket(buffer, buffer.length);
         while (!closed) {
             try {
+                datagram.setData(buffer); // receive() shrinks the length to the last datagram
                 socket.receive(datagram);
                 handle(datagram);
             } catch (IOException e) {
                 if (!closed) {
                     Svco.LOGGER.warn("P2P socket read failed", e);
+                    onFailure.accept(e.getMessage() == null ? "voice socket failed" : e.getMessage());
                 }
                 return;
             } catch (Exception e) {
@@ -353,7 +371,7 @@ public final class PeerManager implements AutoCloseable {
 
     private void send(byte[] packet, InetSocketAddress target) {
         try {
-            socket.send(new DatagramPacket(packet, packet.length, target));
+            socket.send(packet, target);
         } catch (IOException e) {
             if (!closed) {
                 Svco.LOGGER.debug("P2P send to {} failed", target, e);
@@ -363,10 +381,22 @@ public final class PeerManager implements AutoCloseable {
 
     // ---- candidates ------------------------------------------------------
 
-    /** Host candidates (all usable interface addresses) plus the reflexive one. */
+    /**
+     * Host candidates (all usable interface addresses) plus the reflexive one.
+     * Behind a proxy only the reflexive candidate — the proxy's address as
+     * the relay sees it — is advertised: host candidates would hand peers
+     * this machine's LAN and global IPv6 addresses.
+     */
     public List<SignalMessages.Candidate> localCandidates() {
         List<SignalMessages.Candidate> out = new ArrayList<>();
-        int port = socket.getLocalPort();
+        if (socket.proxied()) {
+            SignalMessages.Candidate srflx = reflexiveCandidate;
+            if (srflx != null) {
+                out.add(srflx);
+            }
+            return out;
+        }
+        int port = socket.localPort();
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements()) {

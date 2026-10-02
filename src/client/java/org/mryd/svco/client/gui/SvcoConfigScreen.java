@@ -32,6 +32,7 @@ public class SvcoConfigScreen extends Screen {
 
     private static final int CONTENT_WIDTH = 320;
     private static final int HALF_WIDTH = 156;
+    private static final int PROXY_BUTTON_WIDTH = 96;
     private static final int ROW_HEIGHT = 20;
     private static final int ROW_GAP = 4;
     private static final int SECTION_GAP = 8; // between a row and the next section label row
@@ -151,13 +152,26 @@ public class SvcoConfigScreen extends Screen {
         // -- relay url -----------------------------------------------------
         sectionRelayY = y + ROW_HEIGHT + SECTION_GAP;
         y = sectionRelayY + 10;
-        relayUrlBox = new EditBox(font, left, y, CONTENT_WIDTH, ROW_HEIGHT,
+        relayUrlBox = new EditBox(font, left, y, CONTENT_WIDTH - PROXY_BUTTON_WIDTH - 4, ROW_HEIGHT,
                 Component.translatable("svco.gui.relay_url"));
         relayUrlBox.setMaxLength(256);
         relayUrlBox.setValue(SvcoConfig.RELAY_URL);
         relayUrlBox.setEditable(false); // relay address is fixed and cannot be changed
         relayUrlBox.setTooltip(Tooltip.create(Component.translatable("svco.gui.relay_url.tooltip")));
         addRenderableWidget(relayUrlBox);
+        addRenderableWidget(Button.builder(Component.translatable(
+                                config.proxyEnabled ? "svco.gui.proxy.button.on" : "svco.gui.proxy.button.off"),
+                        button -> {
+                            SvcoConfig.get().save(); // keep this screen's edits if the game closes meanwhile
+                            //? if >=26.2 {
+                            minecraft.gui.setScreen(new ProxyConfigScreen(this));
+                            //?} else {
+                            /*minecraft.setScreen(new ProxyConfigScreen(this));
+                            *///?}
+                        })
+                .bounds(left + CONTENT_WIDTH - PROXY_BUTTON_WIDTH, y, PROXY_BUTTON_WIDTH, ROW_HEIGHT)
+                .tooltip(Tooltip.create(Component.translatable("svco.gui.proxy.button.tooltip")))
+                .build());
 
         addRenderableWidget(Button.builder(Component.translatable("gui.done"), button -> onClose())
                 .bounds(width / 2 - 100, height - 26, 200, ROW_HEIGHT)
@@ -353,7 +367,11 @@ public class SvcoConfigScreen extends Screen {
                               List<PeerManager.PeerSnapshot> peers) {
 
         static StatusView of(FallbackManager manager) {
-            String relayUrl = SvcoConfig.RELAY_URL;
+            SvcoConfig config = SvcoConfig.get();
+            // Show the route too, so it is obvious whether the proxy is in use
+            String relayUrl = config.proxyEnabled
+                    ? SvcoConfig.RELAY_URL + " via SOCKS5 " + config.proxyHost + ":" + config.proxyPort
+                    : SvcoConfig.RELAY_URL;
             if (manager == null) {
                 return new StatusView(Component.translatable("svco.status.idle"),
                         Component.literal(relayUrl), 0xFF9E9EA6, false, null);

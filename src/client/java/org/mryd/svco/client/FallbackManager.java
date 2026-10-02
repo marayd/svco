@@ -133,6 +133,29 @@ public class FallbackManager {
         }
     }
 
+    /**
+     * Called by the settings screen when the proxy settings change. A live
+     * or in-flight connection keeps the route it was opened with, so it is
+     * torn down and rebuilt over the new one.
+     */
+    public synchronized void onProxyChanged() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) {
+            return;
+        }
+        switch (status) {
+            case CONNECTING, CONNECTED, RECONNECTING, FAILED -> {
+                generation++; // drop a connect still running on the old route
+                closeSession();
+                reconnectAttempt = 0;
+                lastError = "";
+                startConnect(minecraft);
+            }
+            default -> {
+            }
+        }
+    }
+
     // ---- lifecycle -------------------------------------------------------
 
     void onJoin(Minecraft minecraft) {

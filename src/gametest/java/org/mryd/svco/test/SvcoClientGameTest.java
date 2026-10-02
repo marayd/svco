@@ -4,6 +4,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.fabricmc.loader.api.FabricLoader;
+import org.mryd.svco.client.gui.ProxyConfigScreen;
 import org.mryd.svco.client.gui.SvcoConfigScreen;
 
 /**
@@ -22,6 +23,10 @@ public class SvcoClientGameTest implements FabricClientGameTest {
 		context.waitForScreen(SvcoConfigScreen.class);
 		context.waitTicks(20);
 		context.takeScreenshot("svco-config-title");
+		context.setScreen(() -> new ProxyConfigScreen(new SvcoConfigScreen(null)));
+		context.waitForScreen(ProxyConfigScreen.class);
+		context.waitTicks(20);
+		context.takeScreenshot("svco-proxy-title");
 		context.setScreen(() -> null);
 
 		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {

@@ -44,6 +44,16 @@ public class SvcoConfig {
     public boolean checkUpdates = true; // ask the relay's update API at startup
     public boolean autoUpdate = true;   // download new versions into mods/ automatically
 
+    // SOCKS5 proxy for everything that reaches the relay or peers (signaling,
+    // relayed and direct voice, update checks), so neither learns our address.
+    // The proxy must support UDP ASSOCIATE. If it is enabled but unusable,
+    // the relay connection fails; it never falls back to a direct connection.
+    public boolean proxyEnabled = false;
+    public String proxyHost = "";
+    public int proxyPort = 1080;
+    public String proxyUsername = ""; // empty = no authentication
+    public String proxyPassword = ""; // stored in plain text, like the rest of this file
+
     private static SvcoConfig instance;
 
     public static synchronized SvcoConfig get() {
@@ -68,6 +78,10 @@ public class SvcoConfig {
         voiceDistance = Math.max(1.0, Math.min(MAX_VOICE_DISTANCE, voiceDistance));
         punchTimeoutMs = Math.max(1000, Math.min(15_000, punchTimeoutMs));
         maxReconnectAttempts = Math.max(0, Math.min(20, maxReconnectAttempts));
+        proxyHost = proxyHost == null ? "" : proxyHost.trim();
+        proxyPort = Math.max(1, Math.min(65535, proxyPort));
+        proxyUsername = proxyUsername == null ? "" : proxyUsername;
+        proxyPassword = proxyPassword == null ? "" : proxyPassword;
     }
 
     private static Path path() {

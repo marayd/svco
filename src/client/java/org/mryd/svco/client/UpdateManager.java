@@ -4,6 +4,9 @@ import com.google.gson.Gson;
 import net.minecraft.client.Minecraft;
 import org.mryd.svco.Svco;
 import org.mryd.svco.client.platform.Platform;
+import org.mryd.svco.client.proxy.ProxiedHttp;
+import org.mryd.svco.client.proxy.ProxySettings;
+import org.mryd.svco.client.proxy.Socks5;
 import org.mryd.svco.client.signal.SignalMessages;
 
 import java.io.IOException;
@@ -21,6 +24,7 @@ import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Checks the relay's update API ({@code /api/v1/update}) once per launch and,
@@ -35,11 +39,18 @@ import java.util.Optional;
  *
  * <p>In a development environment (mod not loaded from a single jar) nothing
  * is written; the update is only announced.
+ *
+ * <p>With a SOCKS5 proxy configured, both requests go through it like all
+ * other relay traffic; a misconfigured proxy skips the check rather than
+ * contacting the relay directly.
  */
 public final class UpdateManager {
 
     private static final Gson GSON = new Gson();
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration DOWNLOAD_TIMEOUT = Duration.ofMinutes(2);
+    private static final int MAX_API_BYTES = 1 << 20;
+    private static final int MAX_JAR_BYTES = 64 << 20;
 
     private static boolean checkStarted;
 
@@ -96,19 +107,9 @@ public final class UpdateManager {
                 .replaceFirst("^ws", "http"); // ws->http, wss->https
         URI uri = URI.create(base + query);
 
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
-        HttpRequest request = HttpRequest.newBuilder(uri)
-                .timeout(HTTP_TIMEOUT)
-                .header("User-Agent", "svco/" + modVersion())
-                .GET()
-                .build();
-
         Svco.LOGGER.info("Checking for updates at {}", uri);
-        client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenAccept(response -> handleResponse(minecraft, client, response))
+        fetch(uri, HTTP_TIMEOUT, MAX_API_BYTES)
+                .thenAccept(response -> handleResponse(minecraft, response))
                 .exceptionally(e -> {
                     // The relay being down must never nag: voice reconnects handle that.
                     Svco.LOGGER.info("Update check failed (relay unreachable): {}", e.toString());
@@ -116,13 +117,49 @@ public final class UpdateManager {
                 });
     }
 
-    private static void handleResponse(Minecraft minecraft, HttpClient client,
-                                       HttpResponse<String> response) {
-        if (response.statusCode() != 200) {
-            Svco.LOGGER.warn("Update check: relay answered HTTP {}", response.statusCode());
+    /** A finished GET: status code and the whole body. */
+    private record Fetched(int status, byte[] body) {
+    }
+
+    /**
+     * GET through the configured SOCKS5 proxy, or directly when there is
+     * none. Fails, rather than going direct, if the proxy is misconfigured.
+     */
+    private static CompletableFuture<Fetched> fetch(URI uri, Duration timeout, int maxBytes) {
+        ProxySettings proxy;
+        try {
+            proxy = ProxySettings.fromConfig(SvcoConfig.get());
+        } catch (IOException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        String userAgent = "svco/" + modVersion();
+        if (proxy != null) {
+            return Socks5.async("svco-update-http", () -> {
+                ProxiedHttp.Response response = ProxiedHttp.get(proxy, uri, userAgent,
+                        (int) timeout.toMillis(), maxBytes);
+                return new Fetched(response.status(), response.body());
+            });
+        }
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .timeout(timeout)
+                .header("User-Agent", userAgent)
+                .GET()
+                .build();
+        return client.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
+                .thenApply(response -> new Fetched(response.statusCode(), response.body()));
+    }
+
+    private static void handleResponse(Minecraft minecraft, Fetched response) {
+        if (response.status() != 200) {
+            Svco.LOGGER.warn("Update check: relay answered HTTP {}", response.status());
             return;
         }
-        UpdateResponse update = GSON.fromJson(response.body(), UpdateResponse.class);
+        UpdateResponse update = GSON.fromJson(new String(response.body(), StandardCharsets.UTF_8),
+                UpdateResponse.class);
         if (update == null) {
             return;
         }
@@ -149,7 +186,7 @@ public final class UpdateManager {
 
         Optional<Path> currentJar = Platform.get().modJar();
         if (SvcoConfig.get().autoUpdate && currentJar.isPresent() && installable(latest)) {
-            downloadAndInstall(minecraft, client, latest, currentJar.get(), mandatory);
+            downloadAndInstall(minecraft, latest, currentJar.get(), mandatory);
         } else {
             minecraft.execute(() -> {
                 if (mandatory) {
@@ -180,8 +217,8 @@ public final class UpdateManager {
         }
     }
 
-    private static void downloadAndInstall(Minecraft minecraft, HttpClient client,
-                                           Latest latest, Path currentJar, boolean mandatory) {
+    private static void downloadAndInstall(Minecraft minecraft, Latest latest, Path currentJar,
+                                           boolean mandatory) {
         Path modsDir = currentJar.getParent();
         Path target = modsDir.resolve(latest.fileName);
 
@@ -201,19 +238,14 @@ public final class UpdateManager {
 
         Path temp = modsDir.resolve(latest.fileName + ".svco-download");
         deleteQuietly(temp); // leftover from an interrupted earlier attempt
-        HttpRequest request = HttpRequest.newBuilder(URI.create(latest.url))
-                .timeout(Duration.ofMinutes(2))
-                .header("User-Agent", "svco/" + modVersion())
-                .GET()
-                .build();
-
         Svco.LOGGER.info("Downloading update {} to {}", latest.version, temp);
-        client.sendAsync(request, HttpResponse.BodyHandlers.ofFile(temp))
+        fetch(URI.create(latest.url), DOWNLOAD_TIMEOUT, MAX_JAR_BYTES)
                 .thenAccept(response -> {
                     try {
-                        if (response.statusCode() != 200) {
-                            throw new IOException("download answered HTTP " + response.statusCode());
+                        if (response.status() != 200) {
+                            throw new IOException("download answered HTTP " + response.status());
                         }
+                        Files.write(temp, response.body());
                         verifySha512(temp, latest.sha512);
                         install(currentJar, temp, target);
                         Svco.LOGGER.info("Update {} installed as {}, restart to apply", latest.version, target);

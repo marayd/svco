@@ -1,14 +1,16 @@
 name: Release
 
 # Publishes every Stonecutter build (Fabric, Forge and NeoForge for each
-# Minecraft version) to Modrinth and attaches the jars to a GitHub Release.
+# Minecraft version) to Modrinth and CurseForge and attaches the jars to a
+# GitHub Release.
 #
 #   git tag v1.0.1 && git push origin v1.0.1    -> release channel
 #   git tag v1.1.0-beta.1 && git push ...       -> beta channel
 #   Actions -> Release -> Run workflow          -> pick version + channel manually
 #
-# Requires the MODRINTH_TOKEN repository secret (a Modrinth PAT with
-# "Create versions" scope).
+# Requires the repository secrets
+#   MODRINTH_TOKEN    a Modrinth PAT with "Create versions" scope
+#   CURSEFORGE_TOKEN  a CurseForge API token (https://legacy.curseforge.com/account/api-tokens)
 
 on:
   push:
@@ -21,7 +23,7 @@ on:
         required: false
         type: string
       version_type:
-        description: 'Modrinth release channel'
+        description: 'Release channel (Modrinth version type / CurseForge release type)'
         required: true
         default: release
         type: choice
@@ -29,13 +31,22 @@ on:
           - release
           - beta
           - alpha
+      platforms:
+        description: 'Where to publish (re-run a failed upload on one site without duplicating the other)'
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - modrinth
+          - curseforge
       nodes:
         description: 'Only these nodes, comma separated (e.g. 26.2-fabric,26.1.2-fabric); empty = all'
         required: false
         default: ''
         type: string
       dry_run:
-        description: 'Build everything and print the Modrinth payload without publishing'
+        description: 'Build everything and print the Modrinth/CurseForge payloads without publishing'
         required: false
         default: false
         type: boolean
@@ -43,7 +54,7 @@ on:
 permissions:
   contents: write
 
-# Never let two releases upload to Modrinth at the same time, and never cancel
+# Never let two releases upload at the same time, and never cancel
 # a run halfway through publishing.
 concurrency:
   group: release
@@ -78,7 +89,7 @@ jobs:
 
           if [ "$EVENT_NAME" = "push" ]; then
             version="${TAG_NAME#v}"
-            # Pre-release suffixes decide the Modrinth channel.
+            # Pre-release suffixes decide the channel.
             case "$version" in
               *alpha*)      version_type=alpha ;;
               *beta*|*rc*)  version_type=beta ;;
@@ -114,8 +125,17 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           TAG_NAME: ${{ github.ref_name }}
           VERSION: ${{ steps.meta.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          # Re-publishing a version that already has a GitHub Release (e.g. to
+          # a newly added site) reuses its notes instead of the commits since.
+          if [ "$EVENT_NAME" != "push" ] \
+            && gh release view "v$VERSION" --repo "${{ github.repository }}" --json body -q .body > CHANGELOG_RELEASE.md 2>/dev/null; then
+            cat CHANGELOG_RELEASE.md
+            exit 0
+          fi
 
           if [ "$EVENT_NAME" = "push" ]; then
             head_ref="$TAG_NAME"
@@ -147,7 +167,7 @@ jobs:
           path: CHANGELOG_RELEASE.md
           retention-days: 7
 
-  publish-modrinth:
+  publish:
     name: MC ${{ matrix.minecraft }}
     needs: prepare
     runs-on: ubuntu-latest
@@ -188,36 +208,67 @@ jobs:
         # runner the JDK from setup-java is the right one.
         run: sed -i '/^org\.gradle\.java\.home=/d' gradle.properties
 
+      - name: Select nodes
+        id: nodes
+        env:
+          MC: ${{ matrix.minecraft }}
+          NODES: ${{ inputs.nodes }}
+        run: |
+          set -euo pipefail
+          # Every loader node of this Minecraft version: versions/<mc>-<loader>,
+          # narrowed to the `nodes` input on a manual run that sets it
+          selected=()
+          for dir in versions/"$MC"-*/; do
+            node="$(basename "$dir")"
+            if [ -n "$NODES" ] && [[ ",${NODES// /}," != *",$node,"* ]]; then
+              continue
+            fi
+            selected+=("$node")
+          done
+          if [ ${#selected[@]} -eq 0 ]; then
+            echo "No selected nodes for Minecraft $MC"
+          fi
+          echo "list=${selected[*]}" >> "$GITHUB_OUTPUT"
+
       - name: Build and publish to Modrinth
+        if: steps.nodes.outputs.list != '' && (inputs.platforms == '' || inputs.platforms == 'all' || inputs.platforms == 'modrinth')
         env:
           MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
           SVCO_CHANGELOG_FILE: CHANGELOG_RELEASE.md
           VERSION: ${{ needs.prepare.outputs.version }}
           VERSION_TYPE: ${{ needs.prepare.outputs.version_type }}
           DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
-          MC: ${{ matrix.minecraft }}
-          NODES: ${{ inputs.nodes }}
+          NODES: ${{ steps.nodes.outputs.list }}
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          # Every loader node of this Minecraft version: versions/<mc>-<loader>,
-          # narrowed to the `nodes` input on a manual run that sets it
           tasks=()
-          for dir in versions/"$MC"-*/; do
-            node="$(basename "$dir")"
-            if [ -n "$NODES" ] && [[ ",${NODES// /}," != *",$node,"* ]]; then
-              continue
-            fi
-            tasks+=(":$node:modrinth")
-          done
-          if [ ${#tasks[@]} -eq 0 ]; then
-            echo "No selected nodes for Minecraft $MC"
-            exit 0
-          fi
+          for node in $NODES; do tasks+=(":$node:modrinth"); done
           ./gradlew --no-daemon --stacktrace "${tasks[@]}" \
             -Pmod_version="$VERSION" \
             -Pmodrinth_version_type="$VERSION_TYPE" \
             -Pmodrinth_debug="$DRY_RUN"
+
+      - name: Build and publish to CurseForge
+        # Runs even if the Modrinth upload failed, so one site's outage does
+        # not hold back the other; re-run with `platforms` for the failed one.
+        if: ${{ !cancelled() && steps.nodes.outcome == 'success' && steps.nodes.outputs.list != '' && (inputs.platforms == '' || inputs.platforms == 'all' || inputs.platforms == 'curseforge') }}
+        env:
+          CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+          SVCO_CHANGELOG_FILE: CHANGELOG_RELEASE.md
+          VERSION: ${{ needs.prepare.outputs.version }}
+          VERSION_TYPE: ${{ needs.prepare.outputs.version_type }}
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          NODES: ${{ steps.nodes.outputs.list }}
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          tasks=()
+          for node in $NODES; do tasks+=(":$node:curseforge"); done
+          ./gradlew --no-daemon --stacktrace "${tasks[@]}" \
+            -Pmod_version="$VERSION" \
+            -Pmodrinth_version_type="$VERSION_TYPE" \
+            -Pcurseforge_debug="$DRY_RUN"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -230,8 +281,9 @@ jobs:
 
   github-release:
     name: GitHub Release
-    needs: [prepare, publish-modrinth]
-    if: needs.prepare.outputs.dry_run != 'true'
+    needs: [prepare, publish]
+    # A single-site re-run leaves the existing GitHub Release alone
+    if: needs.prepare.outputs.dry_run != 'true' && (inputs.platforms == '' || inputs.platforms == 'all')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8

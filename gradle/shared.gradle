@@ -1,6 +1,6 @@
 // Shared by build.fabric.gradle, build.forge.gradle and build.neoforge.gradle.
-// The including script sets `ext.loader` and applies its loader plugin and
-// Minotaur first; this file only relies on the `java` plugin and Minotaur.
+// The including script sets `ext.loader` and applies its loader plugin, Minotaur and
+// CurseForgeGradle first; this file only relies on those and the `java` plugin.
 
 version = "${project.mod_version}+${project.minecraft_version}-${loader}"
 group = project.maven_group
@@ -95,5 +95,47 @@ modrinth {
 			required.project "fabric-api"
 			optional.project "modmenu"
 		}
+	}
+}
+
+// CurseForge publishing, the same split as Modrinth: one file per node.
+//   ./gradlew :1.21.8-neoforge:curseforge   one file
+//   ./gradlew curseforge                    all of them
+// CURSEFORGE_TOKEN must be in the environment; the release workflow supplies it.
+def curseforgeDebug = Boolean.parseBoolean(project.findProperty("curseforge_debug") as String)
+// Scripts applied with `apply from:` can't see plugin classes by name; borrow the plugin's loader
+def publishCurseForgeTask = plugins.getPlugin('net.darkhax.curseforgegradle').class.classLoader
+		.loadClass('net.darkhax.curseforgegradle.TaskPublishCurseForge')
+
+tasks.register('curseforge', publishCurseForgeTask) {
+	group = 'publishing'
+	description = 'Uploads this node\'s jar to CurseForge.'
+
+	apiToken = {
+		def token = System.getenv("CURSEFORGE_TOKEN")
+		if (!token && !curseforgeDebug) {
+			throw new GradleException("CURSEFORGE_TOKEN is not set")
+		}
+		token ?: "debug"
+	}
+	// -Pcurseforge_debug=true builds and prints the payload without uploading
+	debugMode = curseforgeDebug
+	// Versions come from modrinth_game_versions below, not from the loader plugin
+	disableVersionDetection()
+
+	def file = upload(project.curseforge_project_id, project.ext.modrinthUploadTask)
+	file.displayName = "${project.mod_display_name} ${project.mod_version} (${loaderName} ${project.minecraft_version})"
+	file.releaseType = project.modrinth_version_type                 // release | beta | alpha
+	file.changelog = changelogFile.exists() ? changelogFile.text : "No changelog was specified."
+	file.changelogType = 'markdown'
+	modrinthGameVersions.each { file.addGameVersion(it) }
+	file.addModLoader(loaderName)
+	// Client-side addon (displayTest IGNORE_ALL_VERSION on Forge/NeoForge)
+	file.addEnvironment('Client')
+
+	file.addRequirement('simple-voice-chat')
+	if (loader == 'fabric') {
+		file.addRequirement('fabric-api')
+		file.addOptional('modmenu')
 	}
 }

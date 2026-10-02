@@ -2,7 +2,7 @@ name: Build
 
 # Compiles every Stonecutter node (each Minecraft version for Fabric, Forge and
 # NeoForge) on push and pull request. Publishing lives in release.yml; this
-# workflow never touches Modrinth.
+# workflow never touches Modrinth or CurseForge.
 
 on:
   push:

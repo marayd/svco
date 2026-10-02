@@ -4,6 +4,7 @@ plugins {
 	id 'net.fabricmc.fabric-loom' version "${loom_version}" apply false
 	id 'fabric-loom' version "${loom_version}" apply false
 	id 'com.modrinth.minotaur' version '2.10.0'
+	id 'net.darkhax.curseforgegradle' version '1.3.33'
 }
 
 def legacyMc = project.minecraft_version.startsWith("1.")
